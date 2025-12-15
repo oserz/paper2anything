@@ -1,0 +1,17 @@
+{
+  "paperless": {
+    "base_url": "http://localhost:8000",
+    "token": "REPLACE_WITH_PAPERLESS_TOKEN",
+    "page_size": 100
+  },
+  "anythingllm": {
+    "base_url": "http://localhost:3001",
+    "api_key": "REPLACE_WITH_ANYTHINGLLM_API_KEY",
+    "upload_method": "upload"
+  },
+  "sync": {
+    "grouping": "storage_path",
+    "default_workspace": "default",
+    "state_file": "sync_state.json"
+  }
+}
