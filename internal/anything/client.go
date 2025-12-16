@@ -14,9 +14,11 @@ import (
 )
 
 type Client struct {
-	BaseURL string
-	APIKey  string
-	hc      *http.Client
+	BaseURL          string
+	APIKey           string
+	hc               *http.Client
+	workspacesLoaded bool
+	workspacesByName map[string]workspaceInfo
 }
 
 type workspaceResp struct {
@@ -25,35 +27,46 @@ type workspaceResp struct {
 	Slug string `json:"slug"`
 }
 
+type workspaceInfo struct {
+	ID   int
+	Name string
+	Slug string
+}
+
 type uploadResp struct {
 	DocumentURL string `json:"document_url"`
 	Path        string `json:"path"`
 }
 
 func New(baseURL, apiKey string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), APIKey: apiKey, hc: &http.Client{Timeout: 60 * time.Second}}
+	return &Client{
+		BaseURL:          strings.TrimRight(baseURL, "/"),
+		APIKey:           apiKey,
+		hc:               &http.Client{Timeout: 60 * time.Second},
+		workspacesLoaded: false,
+		workspacesByName: map[string]workspaceInfo{},
+	}
 }
 
 func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
-	u := c.BaseURL + "/api/v1/workspace/" + slug
-	req, _ := http.NewRequest("GET", u, nil)
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	resp, err := c.hc.Do(req)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		var raw map[string]any
-		if err := json.NewDecoder(resp.Body).Decode(&raw); err == nil {
-			if v, ok := raw["slug"].(string); ok && v != "" {
-				return v, nil
-			}
-		}
+	if err := c.loadWorkspaces(); err != nil {
+		return "", err
 	}
-	if resp != nil {
-		resp.Body.Close()
+	if ws, ok := c.workspacesByName[name]; ok && ws.Slug != "" {
+		return ws.Slug, nil
 	}
-	body := map[string]string{"name": name, "slug": slug}
+	body := map[string]any{
+		"name":                 name,
+		"similarityThreshold":  0.7,
+		"openAiTemp":           0.7,
+		"openAiHistory":        20,
+		"chatMode":             "chat",
+		"topN":                 4,
+		"queryRefusalResponse": "",
+		"openAiPrompt":         nil,
+	}
 	b, _ := json.Marshal(body)
-	req2, _ := http.NewRequest("POST", c.BaseURL+"/api/v1/workspace", bytes.NewReader(b))
+	req2, _ := http.NewRequest("POST", c.BaseURL+"/api/v1/workspace/new", bytes.NewReader(b))
 	req2.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req2.Header.Set("Content-Type", "application/json")
 	resp2, err := c.hc.Do(req2)
@@ -67,11 +80,33 @@ func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
 	}
 	var raw map[string]any
 	if err := json.NewDecoder(resp2.Body).Decode(&raw); err == nil {
-		if v, ok := raw["slug"].(string); ok && v != "" {
-			return v, nil
+		if w, ok := raw["workspace"].(map[string]any); ok {
+			var info workspaceInfo
+			if v, ok := w["id"].(float64); ok {
+				info.ID = int(v)
+			}
+			if v, ok := w["name"].(string); ok {
+				info.Name = v
+			} else {
+				info.Name = name
+			}
+			if v, ok := w["slug"].(string); ok {
+				info.Slug = v
+			} else {
+				info.Slug = slug
+			}
+			if info.Name != "" {
+				c.workspacesByName[info.Name] = info
+			}
+			if info.Slug != "" {
+				return info.Slug, nil
+			}
 		}
 	}
-	return slug, nil
+	if slug != "" {
+		return slug, nil
+	}
+	return name, nil
 }
 
 func (c *Client) UploadDocument(filePath string) (string, error) {
@@ -113,6 +148,52 @@ func (c *Client) UploadDocument(filePath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no document url returned")
+}
+
+func (c *Client) loadWorkspaces() error {
+	if c.workspacesLoaded {
+		return nil
+	}
+	u := c.BaseURL + "/api/v1/workspaces"
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		x, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("list workspaces failed: %s", string(x))
+	}
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return err
+	}
+	ws, ok := raw["workspaces"].([]any)
+	if !ok {
+		c.workspacesLoaded = true
+		return nil
+	}
+	for _, item := range ws {
+		if m, ok := item.(map[string]any); ok {
+			var info workspaceInfo
+			if v, ok := m["id"].(float64); ok {
+				info.ID = int(v)
+			}
+			if v, ok := m["name"].(string); ok {
+				info.Name = v
+			}
+			if v, ok := m["slug"].(string); ok {
+				info.Slug = v
+			}
+			if info.Name != "" {
+				c.workspacesByName[info.Name] = info
+			}
+		}
+	}
+	c.workspacesLoaded = true
+	return nil
 }
 
 func (c *Client) UpdateEmbeddings(slug string, adds, removes []string) error {
