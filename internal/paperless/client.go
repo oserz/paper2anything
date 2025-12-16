@@ -21,13 +21,14 @@ type Client struct {
 }
 
 type Document struct {
-	ID          int        `json:"id"`
-	Title       string     `json:"title"`
-	Modified    string     `json:"modified"`
-	Created     string     `json:"created"`
-	DownloadURL string     `json:"download_url"`
-	StoragePath *StorePath `json:"storage_path"`
-	Tags        []Tag      `json:"tags"`
+	ID               int        `json:"id"`
+	Title            string     `json:"title"`
+	Modified         string     `json:"modified"`
+	Created          string     `json:"created"`
+	DownloadURL      string     `json:"download_url"`
+	StoragePath      *StorePath `json:"storage_path"`
+	Tags             []Tag      `json:"tags"`
+	OriginalFileName string     `json:"original_file_name"`
 }
 
 type Tag struct {
@@ -108,7 +109,17 @@ func (c *Client) Download(doc Document) (string, error) {
 		b, _ := io.ReadAll(resp.Body)
 		return "", errors.New(string(b))
 	}
-	fn := fmt.Sprintf("paperless-%d", doc.ID)
+	base := doc.OriginalFileName
+	if base == "" {
+		base = "paperless"
+	}
+	base = filepath.Base(base)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if name == "" {
+		name = "paperless"
+	}
+	fn := fmt.Sprintf("%s-%d%s", name, doc.ID, ext)
 	tmp := filepath.Join(os.TempDir(), fn)
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -170,6 +181,9 @@ func decodeDocument(data []byte, tagsIndex map[int]Tag) (Document, error) {
 	}
 	if v, ok := m["download_url"].(string); ok {
 		d.DownloadURL = v
+	}
+	if v, ok := m["original_file_name"].(string); ok {
+		d.OriginalFileName = v
 	}
 	if sp, ok := m["storage_path"].(map[string]any); ok {
 		var s StorePath

@@ -77,11 +77,10 @@ func Run(cfg config.Config, dryRun bool) error {
 		if err != nil {
 			return err
 		}
-		docURL, err := ac.UploadDocument(fp)
+		docURL, err := ac.UploadDocument(fp, slug)
 		if err != nil {
 			return err
 		}
-		adds := []string{docURL}
 		removes := []string{}
 		if ok && prev.DocURL != "" && prev.Workspace == slug {
 			removes = append(removes, prev.DocURL)
@@ -89,8 +88,10 @@ func Run(cfg config.Config, dryRun bool) error {
 		if prev.Workspace != "" && prev.Workspace != slug && prev.DocURL != "" {
 			_ = ac.UpdateEmbeddings(prev.Workspace, nil, []string{prev.DocURL})
 		}
-		if err := ac.UpdateEmbeddings(slug, adds, removes); err != nil {
-			return err
+		if len(removes) > 0 {
+			if err := ac.UpdateEmbeddings(slug, nil, removes); err != nil {
+				return err
+			}
 		}
 		st.Docs[d.ID] = stateDoc{Workspace: slug, DocURL: docURL, Modified: mod}
 	}

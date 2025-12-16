@@ -109,7 +109,7 @@ func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
 	return name, nil
 }
 
-func (c *Client) UploadDocument(filePath string) (string, error) {
+func (c *Client) UploadDocument(filePath string, workspaceSlug string) (string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return "", err
@@ -123,6 +123,9 @@ func (c *Client) UploadDocument(filePath string) (string, error) {
 	}
 	if _, err := io.Copy(fw, f); err != nil {
 		return "", err
+	}
+	if workspaceSlug != "" {
+		_ = mw.WriteField("addToWorkspaces", workspaceSlug)
 	}
 	mw.Close()
 
@@ -140,6 +143,13 @@ func (c *Client) UploadDocument(filePath string) (string, error) {
 	}
 	var raw map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err == nil {
+		if docs, ok := raw["documents"].([]any); ok && len(docs) > 0 {
+			if m, ok := docs[0].(map[string]any); ok {
+				if v, ok := m["location"].(string); ok && v != "" {
+					return v, nil
+				}
+			}
+		}
 		if v, ok := raw["document_url"].(string); ok && v != "" {
 			return v, nil
 		}
