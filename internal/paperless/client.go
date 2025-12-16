@@ -31,6 +31,7 @@ type Document struct {
 }
 
 type Tag struct {
+	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -47,6 +48,10 @@ func New(baseURL, token string, pageSize int) *Client {
 
 func (c *Client) ListDocuments() ([]Document, error) {
 	var out []Document
+	tagsIndex, err := c.loadTags()
+	if err != nil {
+		return nil, err
+	}
 	u := fmt.Sprintf("%s/api/documents/?page_size=%d", c.BaseURL, c.PageSize)
 	for {
 		req, _ := http.NewRequest("GET", u, nil)
@@ -70,7 +75,7 @@ func (c *Client) ListDocuments() ([]Document, error) {
 			return nil, err
 		}
 		for _, r := range raw.Results {
-			doc, err := decodeDocument(r)
+			doc, err := decodeDocument(r, tagsIndex)
 			if err != nil {
 				continue
 			}
@@ -118,20 +123,8 @@ func (c *Client) Download(doc Document) (string, error) {
 }
 
 func GroupKey(doc Document, grouping string, defaultName string) string {
-	switch grouping {
-	case "storage_path":
-		if doc.StoragePath != nil {
-			if doc.StoragePath.Path != "" {
-				return doc.StoragePath.Path
-			}
-			if doc.StoragePath.Title != "" {
-				return doc.StoragePath.Title
-			}
-		}
-	case "tag":
-		if len(doc.Tags) > 0 {
-			return doc.Tags[0].Name
-		}
+	if len(doc.Tags) > 0 && doc.Tags[0].Name != "" {
+		return doc.Tags[0].Name
 	}
 	return defaultName
 }
@@ -157,7 +150,7 @@ func JoinURL(base, p string) string {
 	return u.Scheme + "://" + u.Host + "/" + strings.TrimLeft(p, "/")
 }
 
-func decodeDocument(data []byte) (Document, error) {
+func decodeDocument(data []byte, tagsIndex map[int]Tag) (Document, error) {
 	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {
 		return Document{}, err
@@ -196,16 +189,60 @@ func decodeDocument(data []byte) (Document, error) {
 	}
 	if tags, ok := m["tags"].([]any); ok {
 		for _, t := range tags {
-			if tm, ok := t.(map[string]any); ok {
-				var tag Tag
-				if v, ok := tm["name"].(string); ok {
-					tag.Name = v
-				}
-				if tag.Name != "" {
+			if id, ok := t.(float64); ok {
+				if tag, ok := tagsIndex[int(id)]; ok {
 					d.Tags = append(d.Tags, tag)
 				}
 			}
 		}
 	}
 	return d, nil
+}
+
+func (c *Client) loadTags() (map[int]Tag, error) {
+	res := make(map[int]Tag)
+	u := fmt.Sprintf("%s/api/tags/?page_size=%d", c.BaseURL, c.PageSize)
+	for {
+		req, _ := http.NewRequest("GET", u, nil)
+		req.Header.Set("Authorization", "Token "+c.Token)
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("paperless tags failed: %s", string(b))
+		}
+		var raw struct {
+			Count    int               `json:"count"`
+			Next     *string           `json:"next"`
+			Previous *string           `json:"previous"`
+			Results  []json.RawMessage `json:"results"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			return nil, err
+		}
+		for _, r := range raw.Results {
+			var m map[string]any
+			if err := json.Unmarshal(r, &m); err != nil {
+				continue
+			}
+			var t Tag
+			if v, ok := m["id"].(float64); ok {
+				t.ID = int(v)
+			}
+			if v, ok := m["name"].(string); ok {
+				t.Name = v
+			}
+			if t.ID != 0 {
+				res[t.ID] = t
+			}
+		}
+		if raw.Next == nil || *raw.Next == "" {
+			break
+		}
+		u = *raw.Next
+	}
+	return res, nil
 }
