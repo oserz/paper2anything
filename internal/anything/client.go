@@ -57,7 +57,7 @@ func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
 	}
 	body := map[string]any{
 		"name":                 name,
-		"similarityThreshold":  0.7,
+		"similarityThreshold":  0.5,
 		"openAiTemp":           0.7,
 		"openAiHistory":        20,
 		"chatMode":             "chat",
