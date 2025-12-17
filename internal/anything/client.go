@@ -223,3 +223,24 @@ func (c *Client) UpdateEmbeddings(slug string, adds, removes []string) error {
 	}
 	return nil
 }
+
+func (c *Client) RemoveDocuments(names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	body := map[string][]string{"names": names}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest("DELETE", c.BaseURL+"/api/v1/system/remove-documents", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		x, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("remove documents failed: %s", string(x))
+	}
+	return nil
+}

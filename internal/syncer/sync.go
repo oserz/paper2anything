@@ -59,9 +59,11 @@ func Run(cfg config.Config, dryRun bool) error {
 		group := paperless.GroupKey(d, cfg.Sync.Grouping, cfg.Sync.DefaultWorkspace)
 		slug := util.Slugify(group)
 		if !dryRun {
-			if _, err := ac.EnsureWorkspace(group, slug); err != nil {
+			var slugnew string
+			if slugnew, err = ac.EnsureWorkspace(group, slug); err != nil {
 				return err
 			}
+			slug = slugnew
 		}
 		prev, ok := st.Docs[d.ID]
 		mod := d.Modified
@@ -82,14 +84,22 @@ func Run(cfg config.Config, dryRun bool) error {
 			return err
 		}
 		adds := []string{docURL}
+
+		rollback := func() {
+			_ = ac.RemoveDocuments([]string{docURL})
+		}
 		removes := []string{}
 		if ok && prev.DocURL != "" && prev.Workspace == slug {
 			removes = append(removes, prev.DocURL)
 		}
 		if prev.Workspace != "" && prev.Workspace != slug && prev.DocURL != "" {
-			_ = ac.UpdateEmbeddings(prev.Workspace, nil, []string{prev.DocURL})
+			if err := ac.UpdateEmbeddings(prev.Workspace, nil, []string{prev.DocURL}); err != nil {
+				rollback()
+				return err
+			}
 		}
 		if err := ac.UpdateEmbeddings(slug, adds, removes); err != nil {
+			rollback()
 			return err
 		}
 		st.Docs[d.ID] = stateDoc{Workspace: slug, DocURL: docURL, Modified: mod}
