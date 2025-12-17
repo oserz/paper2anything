@@ -12,19 +12,19 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", "config.json", "配置文件路径")
-	dryRun := flag.Bool("dry-run", false, "仅显示将执行的操作")
+	cfgPath := flag.String("config", "config.json", "Path to config file")
+	dryRun := flag.Bool("dry-run", false, "Show planned changes without applying them")
 	flag.Parse()
 
 	b, err := os.ReadFile(*cfgPath)
 	if err != nil {
-		fmt.Println("读取配置失败:", err)
+		fmt.Println("Failed to read config:", err)
 		os.Exit(1)
 	}
 
 	var cfg config.Config
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		fmt.Println("解析配置失败:", err)
+		fmt.Println("Failed to parse config:", err)
 		os.Exit(1)
 	}
 
@@ -38,8 +38,8 @@ func main() {
 	start := time.Now()
 	err = syncer.Run(cfg, *dryRun)
 	if err != nil {
-		fmt.Println("同步失败:", err)
+		fmt.Println("Sync failed:", err)
 		os.Exit(1)
 	}
-	fmt.Println("同步完成", time.Since(start))
+	fmt.Println("Sync finished in", time.Since(start))
 }

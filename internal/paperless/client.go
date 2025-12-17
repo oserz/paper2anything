@@ -134,10 +134,35 @@ func (c *Client) Download(doc Document) (string, error) {
 }
 
 func GroupKey(doc Document, grouping string, defaultName string) string {
-	if len(doc.Tags) > 0 && doc.Tags[0].Name != "" {
-		return doc.Tags[0].Name
+	keys := GroupKeys(doc, grouping, defaultName)
+	if len(keys) == 0 {
+		return defaultName
 	}
-	return defaultName
+	return keys[0]
+}
+
+func GroupKeys(doc Document, grouping string, defaultName string) []string {
+	switch grouping {
+	case "storage_path":
+		if doc.StoragePath != nil && doc.StoragePath.Path != "" {
+			return []string{doc.StoragePath.Path}
+		}
+	case "tag":
+		var res []string
+		for _, t := range doc.Tags {
+			if t.Name != "" {
+				res = append(res, t.Name)
+			}
+		}
+		if len(res) > 0 {
+			return res
+		}
+	default:
+		if len(doc.Tags) > 0 && doc.Tags[0].Name != "" {
+			return []string{doc.Tags[0].Name}
+		}
+	}
+	return []string{defaultName}
 }
 
 func ParseTime(s string) time.Time {

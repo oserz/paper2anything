@@ -9,6 +9,7 @@ import (
 	"paperless2anythingllm/internal/paperless"
 	"paperless2anythingllm/internal/util"
 	"path/filepath"
+	"strings"
 )
 
 type state struct {
@@ -16,9 +17,37 @@ type state struct {
 }
 
 type stateDoc struct {
-	Workspace string `json:"workspace"`
-	DocURL    string `json:"doc_url"`
-	Modified  string `json:"modified"`
+	Workspaces map[string]string `json:"workspaces,omitempty"`
+	Workspace  string            `json:"workspace,omitempty"`
+	DocURL     string            `json:"doc_url,omitempty"`
+	Modified   string            `json:"modified"`
+}
+
+func (d stateDoc) workspaceMap() map[string]string {
+	if len(d.Workspaces) > 0 {
+		m := make(map[string]string, len(d.Workspaces))
+		for k, v := range d.Workspaces {
+			m[k] = v
+		}
+		return m
+	}
+	m := map[string]string{}
+	if d.Workspace != "" && d.DocURL != "" {
+		m[d.Workspace] = d.DocURL
+	}
+	return m
+}
+
+func sameWorkspaceSet(prev map[string]string, current []string) bool {
+	if len(prev) != len(current) {
+		return false
+	}
+	for _, s := range current {
+		if _, ok := prev[s]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func loadState(path string) (*state, error) {
@@ -53,67 +82,158 @@ func Run(cfg config.Config, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	if dryRun {
+		fmt.Printf("Starting dry-run sync, total documents: %d\n", len(docs))
+	} else {
+		fmt.Printf("Starting sync, total documents: %d\n", len(docs))
+	}
 	present := map[int]struct{}{}
 	for _, d := range docs {
 		present[d.ID] = struct{}{}
-		group := paperless.GroupKey(d, cfg.Sync.Grouping, cfg.Sync.DefaultWorkspace)
-		slug := util.Slugify(group)
-		if !dryRun {
-			var slugnew string
-			if slugnew, err = ac.EnsureWorkspace(group, slug); err != nil {
-				return err
+		groups := paperless.GroupKeys(d, cfg.Sync.Grouping, cfg.Sync.DefaultWorkspace)
+		workspaces := map[string]string{}
+		for _, group := range groups {
+			if group == "" {
+				continue
 			}
-			slug = slugnew
+			slug := util.Slugify(group)
+			if !dryRun {
+				var slugnew string
+				if slugnew, err = ac.EnsureWorkspace(group, slug); err != nil {
+					return err
+				}
+				slug = slugnew
+			}
+			workspaces[slug] = group
+		}
+		if len(workspaces) == 0 {
+			continue
+		}
+		var currentSlugs []string
+		for slug := range workspaces {
+			currentSlugs = append(currentSlugs, slug)
 		}
 		prev, ok := st.Docs[d.ID]
+		prevMap := prev.workspaceMap()
 		mod := d.Modified
-		changed := !ok || prev.Modified != mod || prev.Workspace != slug
+		workspaceChanged := !sameWorkspaceSet(prevMap, currentSlugs)
+		changed := !ok || prev.Modified != mod || workspaceChanged
 		if !changed {
 			continue
 		}
 		if dryRun {
-			fmt.Printf("将更新文档 %d 至工作区 %s\n", d.ID, slug)
+			fmt.Printf("Would update document %d in workspaces: %s\n", d.ID, strings.Join(currentSlugs, ", "))
 			continue
 		}
-		fp, err := pc.Download(d)
-		if err != nil {
-			return err
+		prevSlugs := map[string]struct{}{}
+		for slug := range prevMap {
+			prevSlugs[slug] = struct{}{}
 		}
-		docURL, err := ac.UploadDocument(fp, slug)
-		if err != nil {
-			return err
+		toAdd := []string{}
+		toUpdate := []string{}
+		for _, slug := range currentSlugs {
+			if _, exists := prevSlugs[slug]; !exists {
+				toAdd = append(toAdd, slug)
+			} else if prev.Modified != mod {
+				toUpdate = append(toUpdate, slug)
+			}
 		}
-		adds := []string{docURL}
-
+		toRemove := []string{}
+		for slug := range prevSlugs {
+			found := false
+			for _, s := range currentSlugs {
+				if s == slug {
+					found = true
+					break
+				}
+			}
+			if !found {
+				toRemove = append(toRemove, slug)
+			}
+		}
+		newDocURLs := map[string]string{}
+		uploadedDocs := []string{}
+		if len(toAdd) > 0 || len(toUpdate) > 0 {
+			fp, err := pc.Download(d)
+			if err != nil {
+				return err
+			}
+			for _, slug := range append(toAdd, toUpdate...) {
+				docURL, err := ac.UploadDocument(fp, slug)
+				if err != nil {
+					return err
+				}
+				newDocURLs[slug] = docURL
+				uploadedDocs = append(uploadedDocs, docURL)
+			}
+		}
 		rollback := func() {
-			_ = ac.RemoveDocuments([]string{docURL})
+			if len(uploadedDocs) > 0 {
+				_ = ac.RemoveDocuments(uploadedDocs)
+			}
 		}
-		removes := []string{}
-		if ok && prev.DocURL != "" && prev.Workspace == slug {
-			removes = append(removes, prev.DocURL)
-		}
-		if prev.Workspace != "" && prev.Workspace != slug && prev.DocURL != "" {
-			if err := ac.UpdateEmbeddings(prev.Workspace, nil, []string{prev.DocURL}); err != nil {
+		for _, slug := range currentSlugs {
+			adds := []string{}
+			removes := []string{}
+			if docURL, ok := newDocURLs[slug]; ok {
+				adds = append(adds, docURL)
+				if old, ok := prevMap[slug]; ok && old != "" {
+					removes = append(removes, old)
+				}
+			}
+			if len(adds) == 0 && len(removes) == 0 {
+				continue
+			}
+			if err := ac.UpdateEmbeddings(slug, adds, removes); err != nil {
 				rollback()
 				return err
 			}
 		}
-		if err := ac.UpdateEmbeddings(slug, adds, removes); err != nil {
-			rollback()
-			return err
+		for _, slug := range toRemove {
+			if old, ok := prevMap[slug]; ok && old != "" {
+				if err := ac.UpdateEmbeddings(slug, nil, []string{old}); err != nil {
+					return err
+				}
+			}
 		}
-		st.Docs[d.ID] = stateDoc{Workspace: slug, DocURL: docURL, Modified: mod}
+		nextMap := map[string]string{}
+		for _, slug := range currentSlugs {
+			if docURL, ok := newDocURLs[slug]; ok {
+				nextMap[slug] = docURL
+			} else if old, ok := prevMap[slug]; ok && old != "" {
+				nextMap[slug] = old
+			}
+		}
+		st.Docs[d.ID] = stateDoc{Workspaces: nextMap, Modified: mod}
+	}
+	if dryRun {
+		for id, prev := range st.Docs {
+			if _, ok := present[id]; ok {
+				continue
+			}
+			prevMap := prev.workspaceMap()
+			var slugs []string
+			for slug := range prevMap {
+				slugs = append(slugs, slug)
+			}
+			if len(slugs) == 0 {
+				continue
+			}
+			fmt.Printf("Would remove document %d from workspaces: %s\n", id, strings.Join(slugs, ", "))
+		}
+		return nil
 	}
 	for id, prev := range st.Docs {
 		if _, ok := present[id]; ok {
 			continue
 		}
-		if dryRun {
-			fmt.Printf("将从工作区 %s 移除文档 %d\n", prev.Workspace, id)
-			continue
-		}
-		if prev.DocURL != "" && prev.Workspace != "" {
-			_ = ac.UpdateEmbeddings(prev.Workspace, nil, []string{prev.DocURL})
+		prevMap := prev.workspaceMap()
+		for slug, docURL := range prevMap {
+			if docURL != "" && slug != "" {
+				if err := ac.UpdateEmbeddings(slug, nil, []string{docURL}); err != nil {
+					return err
+				}
+			}
 		}
 		delete(st.Docs, id)
 	}

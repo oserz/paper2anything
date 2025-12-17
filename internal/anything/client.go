@@ -207,7 +207,7 @@ func (c *Client) loadWorkspaces() error {
 }
 
 func (c *Client) UpdateEmbeddings(slug string, adds, removes []string) error {
-	body := map[string][]string{"adds": adds, "removes": removes}
+	body := map[string][]string{"adds": adds, "deletes": removes}
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest("POST", c.BaseURL+"/api/v1/workspace/"+slug+"/update-embeddings", bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
