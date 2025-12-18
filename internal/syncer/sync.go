@@ -71,6 +71,26 @@ func saveState(path string, s *state) error {
 	return os.WriteFile(path, b, 0644)
 }
 
+func collectAllDocNames(st *state) []string {
+	if st == nil {
+		return nil
+	}
+	namesSet := map[string]struct{}{}
+	for _, doc := range st.Docs {
+		for _, url := range doc.workspaceMap() {
+			if url == "" {
+				continue
+			}
+			namesSet[url] = struct{}{}
+		}
+	}
+	var names []string
+	for n := range namesSet {
+		names = append(names, n)
+	}
+	return names
+}
+
 func Run(cfg config.Config, dryRun bool) error {
 	pc := paperless.New(cfg.Paperless.BaseURL, cfg.Paperless.Token, cfg.Paperless.PageSize)
 	ac := anything.New(cfg.AnythingLLM.BaseURL, cfg.AnythingLLM.APIKey)
@@ -242,5 +262,67 @@ func Run(cfg config.Config, dryRun bool) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func ResetAnything(cfg config.Config, dryRun bool) error {
+	ac := anything.New(cfg.AnythingLLM.BaseURL, cfg.AnythingLLM.APIKey)
+	st, err := loadState(cfg.Sync.StateFile)
+	if err != nil {
+		return err
+	}
+	names := collectAllDocNames(st)
+	if len(names) == 0 {
+		if dryRun {
+			fmt.Println("No documents to reset in AnythingLLM based on sync state.")
+		}
+		return nil
+	}
+	if dryRun {
+		fmt.Printf("Would delete %d documents from AnythingLLM based on sync state.\n", len(names))
+		return nil
+	}
+	if err := ac.RemoveDocuments(names); err != nil {
+		return err
+	}
+	st.Docs = map[int]stateDoc{}
+	if err := saveState(cfg.Sync.StateFile, st); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted %d documents from AnythingLLM and reset sync state.\n", len(names))
+	return nil
+}
+
+func ClearAnything(cfg config.Config, dryRun bool) error {
+	ac := anything.New(cfg.AnythingLLM.BaseURL, cfg.AnythingLLM.APIKey)
+	st, err := loadState(cfg.Sync.StateFile)
+	if err != nil {
+		return err
+	}
+	names := collectAllDocNames(st)
+	slugs, err := ac.ListWorkspaceSlugs()
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		fmt.Printf("Would delete %d documents from AnythingLLM.\n", len(names))
+		fmt.Printf("Would delete %d workspaces from AnythingLLM.\n", len(slugs))
+		return nil
+	}
+	if len(names) > 0 {
+		if err := ac.RemoveDocuments(names); err != nil {
+			return err
+		}
+	}
+	for _, slug := range slugs {
+		if err := ac.DeleteWorkspace(slug); err != nil {
+			return err
+		}
+	}
+	st.Docs = map[int]stateDoc{}
+	if err := saveState(cfg.Sync.StateFile, st); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted %d documents and %d workspaces from AnythingLLM and reset sync state.\n", len(names), len(slugs))
 	return nil
 }

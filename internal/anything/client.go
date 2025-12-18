@@ -206,6 +206,43 @@ func (c *Client) loadWorkspaces() error {
 	return nil
 }
 
+func (c *Client) ListWorkspaceSlugs() ([]string, error) {
+	if err := c.loadWorkspaces(); err != nil {
+		return nil, err
+	}
+	slugs := []string{}
+	seen := map[string]struct{}{}
+	for _, ws := range c.workspacesByName {
+		if ws.Slug == "" {
+			continue
+		}
+		if _, ok := seen[ws.Slug]; ok {
+			continue
+		}
+		seen[ws.Slug] = struct{}{}
+		slugs = append(slugs, ws.Slug)
+	}
+	return slugs, nil
+}
+
+func (c *Client) DeleteWorkspace(slug string) error {
+	if slug == "" {
+		return nil
+	}
+	req, _ := http.NewRequest("DELETE", c.BaseURL+"/api/v1/workspace/"+slug, nil)
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		x, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete workspace %s failed: %s", slug, string(x))
+	}
+	return nil
+}
+
 func (c *Client) UpdateEmbeddings(slug string, adds, removes []string) error {
 	body := map[string][]string{"adds": adds, "deletes": removes}
 	b, _ := json.Marshal(body)
