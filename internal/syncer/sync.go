@@ -262,7 +262,8 @@ func Run(cfg config.Config, dryRun bool) error {
 		prevMap := prev.workspaceMap()
 		for slug, docURL := range prevMap {
 			if docURL != "" && slug != "" {
-				if err := ac.UpdateEmbeddings(slug, nil, []string{docURL}); err != nil {
+				adds := []string{}
+				if err := ac.UpdateEmbeddings(slug, adds, []string{docURL}); err != nil {
 					return err
 				}
 			}
