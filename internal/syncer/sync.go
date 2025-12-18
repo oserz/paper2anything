@@ -102,6 +102,7 @@ func Run(cfg config.Config, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	deleteNames := map[string]struct{}{}
 	if dryRun {
 		fmt.Printf("Starting dry-run sync, total documents: %d\n", len(docs))
 	} else {
@@ -199,6 +200,7 @@ func Run(cfg config.Config, dryRun bool) error {
 				adds = append(adds, docURL)
 				if old, ok := prevMap[slug]; ok && old != "" {
 					removes = append(removes, old)
+					deleteNames[old] = struct{}{}
 				}
 			}
 			if len(adds) == 0 && len(removes) == 0 {
@@ -214,6 +216,7 @@ func Run(cfg config.Config, dryRun bool) error {
 				if err := ac.UpdateEmbeddings(slug, nil, []string{old}); err != nil {
 					return err
 				}
+				deleteNames[old] = struct{}{}
 			}
 		}
 		nextMap := map[string]string{}
@@ -243,6 +246,15 @@ func Run(cfg config.Config, dryRun bool) error {
 		}
 		return nil
 	}
+	if len(deleteNames) > 0 {
+		names := make([]string, 0, len(deleteNames))
+		for n := range deleteNames {
+			names = append(names, n)
+		}
+		if err := ac.RemoveDocuments(names); err != nil {
+			return err
+		}
+	}
 	for id, prev := range st.Docs {
 		if _, ok := present[id]; ok {
 			continue
@@ -262,34 +274,6 @@ func Run(cfg config.Config, dryRun bool) error {
 			return err
 		}
 	}
-	return nil
-}
-
-func ResetAnything(cfg config.Config, dryRun bool) error {
-	ac := anything.New(cfg.AnythingLLM.BaseURL, cfg.AnythingLLM.APIKey)
-	st, err := loadState(cfg.Sync.StateFile)
-	if err != nil {
-		return err
-	}
-	names := collectAllDocNames(st)
-	if len(names) == 0 {
-		if dryRun {
-			fmt.Println("No documents to reset in AnythingLLM based on sync state.")
-		}
-		return nil
-	}
-	if dryRun {
-		fmt.Printf("Would delete %d documents from AnythingLLM based on sync state.\n", len(names))
-		return nil
-	}
-	if err := ac.RemoveDocuments(names); err != nil {
-		return err
-	}
-	st.Docs = map[int]stateDoc{}
-	if err := saveState(cfg.Sync.StateFile, st); err != nil {
-		return err
-	}
-	fmt.Printf("Deleted %d documents from AnythingLLM and reset sync state.\n", len(names))
 	return nil
 }
 

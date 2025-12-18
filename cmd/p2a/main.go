@@ -15,7 +15,6 @@ func main() {
 	cfgPath := flag.String("config", "config.json", "Path to config file")
 	dryRun := flag.Bool("dry-run", false, "Show planned changes without applying them")
 	clearAnything := flag.Bool("clear-anything", false, "Delete all documents and workspaces in AnythingLLM")
-	resetAnything := flag.Bool("reset-anything", false, "Delete synced documents in AnythingLLM based on sync_state.json")
 	flag.Parse()
 
 	b, err := os.ReadFile(*cfgPath)
@@ -41,8 +40,6 @@ func main() {
 	switch {
 	case *clearAnything:
 		err = syncer.ClearAnything(cfg, *dryRun)
-	case *resetAnything:
-		err = syncer.ResetAnything(cfg, *dryRun)
 	default:
 		err = syncer.Run(cfg, *dryRun)
 	}
@@ -53,8 +50,6 @@ func main() {
 	switch {
 	case *clearAnything:
 		fmt.Println("Clear-anything finished in", time.Since(start))
-	case *resetAnything:
-		fmt.Println("Reset-anything finished in", time.Since(start))
 	default:
 		fmt.Println("Sync finished in", time.Since(start))
 	}
