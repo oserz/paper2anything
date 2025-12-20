@@ -18,7 +18,6 @@ type state struct {
 
 type stateDoc struct {
 	Workspaces map[string]string `json:"workspaces,omitempty"`
-	Workspace  string            `json:"workspace,omitempty"`
 	DocURL     string            `json:"doc_url,omitempty"`
 	Modified   string            `json:"modified"`
 }
@@ -32,9 +31,6 @@ func (d stateDoc) workspaceMap() map[string]string {
 		return m
 	}
 	m := map[string]string{}
-	if d.Workspace != "" && d.DocURL != "" {
-		m[d.Workspace] = d.DocURL
-	}
 	return m
 }
 
@@ -96,10 +92,12 @@ func Run(cfg config.Config, dryRun bool) error {
 	ac := anything.New(cfg.AnythingLLM.BaseURL, cfg.AnythingLLM.APIKey)
 	docs, err := pc.ListDocuments()
 	if err != nil {
+		fmt.Printf("Failed to list documents from Paperless: %v\n", err)
 		return err
 	}
 	st, err := loadState(cfg.Sync.StateFile)
 	if err != nil {
+		fmt.Printf("Failed to load sync state: %v\n", err)
 		return err
 	}
 	deleteNames := map[string]struct{}{}
@@ -110,6 +108,7 @@ func Run(cfg config.Config, dryRun bool) error {
 	}
 	present := map[int]struct{}{}
 	for _, d := range docs {
+		fmt.Printf("Processing document ID %d: %s\n", d.ID, d.Title)
 		present[d.ID] = struct{}{}
 		groups := paperless.GroupKeys(d, cfg.Sync.Grouping, cfg.Sync.DefaultWorkspace)
 		workspaces := map[string]string{}
@@ -121,6 +120,7 @@ func Run(cfg config.Config, dryRun bool) error {
 			if !dryRun {
 				var slugnew string
 				if slugnew, err = ac.EnsureWorkspace(group, slug); err != nil {
+					fmt.Printf("Failed to ensure workspace %s: %v\n", group, err)
 					return err
 				}
 				slug = slugnew
@@ -142,6 +142,7 @@ func Run(cfg config.Config, dryRun bool) error {
 		if !changed {
 			continue
 		}
+		fmt.Printf("Document ID %d changed, isModified: %v, workspaceChanged: %v\n", d.ID, prev.Modified != mod, workspaceChanged)
 		if dryRun {
 			fmt.Printf("Would update document %d in workspaces: %s\n", d.ID, strings.Join(currentSlugs, ", "))
 			continue
@@ -172,6 +173,7 @@ func Run(cfg config.Config, dryRun bool) error {
 				toRemove = append(toRemove, slug)
 			}
 		}
+		fmt.Printf("To add: %v, to update: %v, to remove: %v\n", toAdd, toUpdate, toRemove)
 		newDocURLs := map[string]string{}
 		uploadedDocs := []string{}
 		if len(toAdd) > 0 || len(toUpdate) > 0 {
@@ -189,6 +191,7 @@ func Run(cfg config.Config, dryRun bool) error {
 			}
 		}
 		rollback := func() {
+			fmt.Printf("Rolling back uploaded documents for document ID %d\n", d.ID)
 			if len(uploadedDocs) > 0 {
 				_ = ac.RemoveDocuments(uploadedDocs)
 			}
@@ -213,7 +216,7 @@ func Run(cfg config.Config, dryRun bool) error {
 		}
 		for _, slug := range toRemove {
 			if old, ok := prevMap[slug]; ok && old != "" {
-				if err := ac.UpdateEmbeddings(slug, nil, []string{old}); err != nil {
+				if err := ac.UpdateEmbeddings(slug, []string{}, []string{old}); err != nil {
 					return err
 				}
 				deleteNames[old] = struct{}{}
@@ -254,6 +257,7 @@ func Run(cfg config.Config, dryRun bool) error {
 		if err := ac.RemoveDocuments(names); err != nil {
 			return err
 		}
+		fmt.Printf("Removed %d documents from AnythingLLM.\n", len(names))
 	}
 	for id, prev := range st.Docs {
 		if _, ok := present[id]; ok {
@@ -266,6 +270,7 @@ func Run(cfg config.Config, dryRun bool) error {
 				if err := ac.UpdateEmbeddings(slug, adds, []string{docURL}); err != nil {
 					return err
 				}
+				fmt.Printf("Removed Embeddings for document %d from workspace %s.\n", id, slug)
 			}
 		}
 		delete(st.Docs, id)
