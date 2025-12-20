@@ -133,34 +133,15 @@ func (c *Client) Download(doc Document) (string, error) {
 	return tmp, nil
 }
 
-func GroupKey(doc Document, grouping string, defaultName string) string {
-	keys := GroupKeys(doc, grouping, defaultName)
-	if len(keys) == 0 {
-		return defaultName
+func GroupKeys(doc Document, defaultName string) []string {
+	var res []string
+	for _, t := range doc.Tags {
+		if t.Name != "" {
+			res = append(res, t.Name)
+		}
 	}
-	return keys[0]
-}
-
-func GroupKeys(doc Document, grouping string, defaultName string) []string {
-	switch grouping {
-	case "storage_path":
-		if doc.StoragePath != nil && doc.StoragePath.Path != "" {
-			return []string{doc.StoragePath.Path}
-		}
-	case "tag":
-		var res []string
-		for _, t := range doc.Tags {
-			if t.Name != "" {
-				res = append(res, t.Name)
-			}
-		}
-		if len(res) > 0 {
-			return res
-		}
-	default:
-		if len(doc.Tags) > 0 && doc.Tags[0].Name != "" {
-			return []string{doc.Tags[0].Name}
-		}
+	if len(res) > 0 {
+		return res
 	}
 	return []string{defaultName}
 }

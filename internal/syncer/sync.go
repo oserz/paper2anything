@@ -110,7 +110,7 @@ func Run(cfg config.Config, dryRun bool) error {
 	for _, d := range docs {
 		fmt.Printf("Processing document ID %d: %s\n", d.ID, d.Title)
 		present[d.ID] = struct{}{}
-		groups := paperless.GroupKeys(d, cfg.Sync.Grouping, cfg.Sync.DefaultWorkspace)
+		groups := paperless.GroupKeys(d, cfg.Sync.DefaultWorkspace)
 		workspaces := map[string]string{}
 		for _, group := range groups {
 			if group == "" {

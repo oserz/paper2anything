@@ -19,7 +19,6 @@ type AnythingLLMConfig struct {
 }
 
 type SyncConfig struct {
-	Grouping         string `json:"grouping"`
 	DefaultWorkspace string `json:"default_workspace"`
 	StateFile        string `json:"state_file"`
 }

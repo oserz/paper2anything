@@ -10,7 +10,6 @@
     "upload_method": "upload"
   },
   "sync": {
-    "grouping": "storage_path",
     "default_workspace": "default",
     "state_file": "sync_state.json"
   }
