@@ -249,6 +249,17 @@ func Run(cfg config.Config, dryRun bool) error {
 		}
 		return nil
 	}
+	// Collect doc URLs from documents that were deleted in Paperless
+	for id, prev := range st.Docs {
+		if _, ok := present[id]; ok {
+			continue
+		}
+		for _, docURL := range prev.workspaceMap() {
+			if docURL != "" {
+				deleteNames[docURL] = struct{}{}
+			}
+		}
+	}
 	if len(deleteNames) > 0 {
 		names := make([]string, 0, len(deleteNames))
 		for n := range deleteNames {
