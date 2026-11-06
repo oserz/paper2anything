@@ -181,13 +181,13 @@ func Run(cfg config.Config, dryRun bool) error {
 			if err != nil {
 				return err
 			}
+			docURL, err := ac.UploadDocument(fp)
+			if err != nil {
+				return err
+			}
+			uploadedDocs = append(uploadedDocs, docURL)
 			for _, slug := range append(toAdd, toUpdate...) {
-				docURL, err := ac.UploadDocument(fp, slug)
-				if err != nil {
-					return err
-				}
 				newDocURLs[slug] = docURL
-				uploadedDocs = append(uploadedDocs, docURL)
 			}
 		}
 		rollback := func() {
@@ -260,11 +260,25 @@ func Run(cfg config.Config, dryRun bool) error {
 			}
 		}
 	}
-	if len(deleteNames) > 0 {
-		names := make([]string, 0, len(deleteNames))
-		for n := range deleteNames {
-			names = append(names, n)
+	inUse := map[string]struct{}{}
+	for id, doc := range st.Docs {
+		if _, ok := present[id]; !ok {
+			continue
 		}
+		for _, docURL := range doc.workspaceMap() {
+			if docURL != "" {
+				inUse[docURL] = struct{}{}
+			}
+		}
+	}
+	names := make([]string, 0, len(deleteNames))
+	for n := range deleteNames {
+		if _, ok := inUse[n]; ok {
+			continue
+		}
+		names = append(names, n)
+	}
+	if len(names) > 0 {
 		if err := ac.RemoveDocuments(names); err != nil {
 			return err
 		}

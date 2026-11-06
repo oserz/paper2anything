@@ -109,7 +109,7 @@ func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
 	return name, nil
 }
 
-func (c *Client) UploadDocument(filePath string, workspaceSlug string) (string, error) {
+func (c *Client) UploadDocument(filePath string) (string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return "", err
@@ -123,9 +123,6 @@ func (c *Client) UploadDocument(filePath string, workspaceSlug string) (string, 
 	}
 	if _, err := io.Copy(fw, f); err != nil {
 		return "", err
-	}
-	if workspaceSlug != "" {
-		_ = mw.WriteField("addToWorkspaces", workspaceSlug)
 	}
 	mw.Close()
 
