@@ -11,7 +11,7 @@ Sync Paperless-ngx documents into AnythingLLM workspaces based on Paperless tags
 - Fetches documents from Paperless
 - Uses each document's tags as workspace names (multi-tag → multi-workspace)
 - Ensures the corresponding workspaces exist in AnythingLLM
-- Uploads the document into each target workspace and updates embeddings
+- Uploads each document once, shares the same AnythingLLM file across all target workspaces, and updates embeddings once per workspace
 - Performs incremental sync using `sync_state.json`
 - Physically deletes old AnythingLLM documents when they are replaced or removed
 - Supports full cleanup with `-clear-anything` (documents + workspaces)
@@ -47,7 +47,7 @@ Create `config.json` in the project root:
 go run ./cmd/p2a -config config.json
 ```
 
-Dry-run (no changes applied):
+Dry-run (no changes applied; reads existing workspaces to resolve their real slugs):
 
 ```bash
 go run ./cmd/p2a -config config.json -dry-run
@@ -61,7 +61,7 @@ go run ./cmd/p2a -config config.json -clear-anything
 
 ### Sync state file
 
-`sync_state.json` stores the last synced version and the AnythingLLM document paths per workspace slug:
+`sync_state.json` stores the last synced version and the AnythingLLM document path per workspace slug. One Paperless document maps to one physical file, so all of its workspace slugs point to the same path:
 
 ```json
 {
@@ -69,7 +69,7 @@ go run ./cmd/p2a -config config.json -clear-anything
     "123": {
       "workspaces": {
         "tag-a": "custom-documents/example-123.pdf-xxxx.json",
-        "tag-b": "custom-documents/example-123.pdf-yyyy.json"
+        "tag-b": "custom-documents/example-123.pdf-xxxx.json"
       },
       "modified": "2025-12-16T10:59:35.587005+08:00"
     }
@@ -112,7 +112,7 @@ Logs:
 - 从 Paperless 拉取文档
 - 使用每个文档的标签作为工作区名称（多标签 → 多工作区）
 - 在 AnythingLLM 中确保对应工作区存在
-- 向每个目标工作区上传文档并更新 embeddings
+- 每个文档只上传一次，多个工作区共享同一个 AnythingLLM 文件，并按工作区分别更新 embeddings
 - 使用 `sync_state.json` 做增量同步
 - 当文档被替换或从工作区移除时，会在 AnythingLLM 中真实删除旧文档（不仅仅移除 embedding）
 - 提供 `-clear-anything` 一键清理（文档 + 工作区）
@@ -149,7 +149,7 @@ Logs:
 go run ./cmd/p2a -config config.json
 ```
 
-仅查看将要执行的动作（不写入）：
+仅查看将要执行的动作（不写入；会读取现有工作区以解析真实 slug）：
 
 ```bash
 go run ./cmd/p2a -config config.json -dry-run
@@ -163,7 +163,7 @@ go run ./cmd/p2a -config config.json -clear-anything
 
 ### 状态文件
 
-`sync_state.json` 会记录每个 Paperless 文档在不同工作区下对应的 AnythingLLM 文档路径：
+`sync_state.json` 会记录每个 Paperless 文档在不同工作区下对应的 AnythingLLM 文档路径。一个文档只对应一个物理文件，因此同一文档的多个工作区指向同一路径：
 
 ```json
 {
@@ -171,7 +171,7 @@ go run ./cmd/p2a -config config.json -clear-anything
     "123": {
       "workspaces": {
         "tag-a": "custom-documents/example-123.pdf-xxxx.json",
-        "tag-b": "custom-documents/example-123.pdf-yyyy.json"
+        "tag-b": "custom-documents/example-123.pdf-xxxx.json"
       },
       "modified": "2025-12-16T10:59:35.587005+08:00"
     }

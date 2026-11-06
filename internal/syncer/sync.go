@@ -117,14 +117,17 @@ func Run(cfg config.Config, dryRun bool) error {
 				continue
 			}
 			slug := util.Slugify(group)
-			if !dryRun {
-				var slugnew string
-				if slugnew, err = ac.EnsureWorkspace(group, slug); err != nil {
-					fmt.Printf("Failed to ensure workspace %s: %v\n", group, err)
-					return err
-				}
-				slug = slugnew
+			var slugnew string
+			if dryRun {
+				slugnew, err = ac.LookupWorkspaceSlug(group, slug)
+			} else {
+				slugnew, err = ac.EnsureWorkspace(group, slug)
 			}
+			if err != nil {
+				fmt.Printf("Failed to resolve workspace %s: %v\n", group, err)
+				return err
+			}
+			slug = slugnew
 			workspaces[slug] = group
 		}
 		if len(workspaces) == 0 {

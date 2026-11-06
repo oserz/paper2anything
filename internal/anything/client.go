@@ -48,6 +48,16 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
+func (c *Client) LookupWorkspaceSlug(name, fallback string) (string, error) {
+	if err := c.loadWorkspaces(); err != nil {
+		return "", err
+	}
+	if ws, ok := c.workspacesByName[name]; ok && ws.Slug != "" {
+		return ws.Slug, nil
+	}
+	return fallback, nil
+}
+
 func (c *Client) EnsureWorkspace(name, slug string) (string, error) {
 	if err := c.loadWorkspaces(); err != nil {
 		return "", err
